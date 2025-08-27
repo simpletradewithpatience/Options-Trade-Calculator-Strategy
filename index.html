@@ -348,7 +348,7 @@ function buildupText(){
 }
 function riskAlerts(strategy, legs, riskPerLot){
   const princ=+document.getElementById("principal").value||0;
-  const lots = riskPerLot>0 && princ>0 ? Math.floor(princ / riskPerLot) : 0;
+  const lots = riskPerLot>0 && princ>0 ? Math.max(1, Math.floor(princ / riskPerLot)) : 1;
   const alerts=[];
   if (princ>0 && riskPerLot>0 && (riskPerLot*lots) > 0.02*princ) alerts.push("🚨 Violates 2% Rule (risk > 2% of principal).");
   const ivMsg = ivSuitability(strategy, legs);
@@ -685,4 +685,5 @@ function analyzeTrade(){
 }
 </script>
 </body>
+
 </html>

@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Options Trade Calculator</title>
+  <!-- Chart.js v4 + plugins -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2"></script>
+  <!-- PapaParse -->
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.3.2/papaparse.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; background:#000; color:#fff; margin:0; padding:20px; }
+    .container { display:flex; gap:20px; max-width:1400px; margin:auto; }
+    .left-panel, .right-panel { flex:1; background:#1c1c1c; border-radius:8px; padding:20px; }
+    h2 { margin:0 0 10px 0; font-size:18px; border-bottom:1px solid #333; padding-bottom:6px; }
+    label { font-size:14px; margin-top:10px; display:block; }
+    input, select { width:100%; padding:6px; margin-top:5px; font-size:14px; background:#000; color:#fff; border:1px solid #444; border-radius:4px; }
+    button { margin-top:15px; padding:8px 15px; border:none; border-radius:4px; cursor:pointer; font-size:14px; }
+    .btn-green { background:#00b050; color:#fff; } .btn-blue { background:#007bff; color:#fff; }
+    .tabs { display:flex; gap:10px; margin-bottom:15px; }
+    .tab { flex:1; text-align:center; padding:8px; cursor:pointer; background:#333; border-radius:4px; }
+    .tab.active { background:#007bff; color:#fff; }
+    .output-section { display:none; }
+    .output-section.active { display:block; }
+    .card { background:#111; border-radius:6px; padding:10px; margin-bottom:10px; font-size:14px; }
+    .grid { display:grid; grid-template-columns: repeat(2, 1fr); gap:10px; }
+    .grid-3 { display:grid; grid-template-columns: repeat(3, 1fr); gap:10px; }
+    .profit { color:#00ff88; font-weight:bold; }
+    .risk { color:#ff4444; font-weight:bold; }
+    .neutral { color:#33bbff; font-weight:bold; }
+    .muted { color:#bbb; font-size:12px; }
+    .warn { color:#ffcc00; }
+    canvas { background:#000; border:1px solid #333; margin-top:10px; width:100% !important; height:420px !important; }
+    .kvs { display:flex; gap:14px; flex-wrap:wrap; font-size:13px; }
+    .kvs div { background:#0d0d0d; border:1px solid #333; border-radius:5px; padding:6px 8px; }
+    .bullets { margin:0; padding-left:18px; }
+    .pill { display:inline-block; background:#0d0d0d; border:1px solid #333; border-radius:4px; padding:4px 6px; margin-right:8px; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <!-- Input Panel -->
+  <div class="left-panel">
+    <h2>Inputs</h2>
+    <label>Spot Price</label>
+    <input type="number" id="spot" placeholder="e.g. 17600" />
+    <label>Expiry Date</label>
+    <input type="date" id="expiry" />
+    <label>Earnings Date (optional)</label>
+    <input type="date" id="earnings" />
+    <label>Principal Amount</label>
+    <input type="number" id="principal" placeholder="Capital allocated" />
+    <label>Lot Size</label>
+    <input type="number" id="lotSize" placeholder="e.g. 25" />
+    <label>Risk Amount (₹) per Trade</label>
+    <input type="number" id="riskPerTrade" placeholder="e.g. 5000" />
+
+    <label>Upload Option Chain</label>
+    <input type="file" id="fileUpload" accept=".csv" />
+    <button class="btn-green" onclick="runRecommender()">🔍 Trade Recommender</button>
+    <button class="btn-blue" onclick="runAnalyzer()">📈 Trade Analyzer</button>
+
+    <!-- Trade Details -->
+    <div class="card" id="tradeDetails">
+      <strong>Trade Details (per lot)</strong>
+      <div id="td-summary" class="muted">Run Recommender/Analyzer to populate.</div>
+      <div style="margin-top:6px;">
+        <span class="pill">Entry: <span id="td-entry">-</span></span>
+        <span class="pill">SL: <span id="td-sl">-</span></span>
+        <span class="pill">Target 1:1: <span id="td-t1">-</span></span>
+        <span class="pill">Target 1:2: <span id="td-t2">-</span></span>
+      </div>
+      <div class="muted" style="margin-top:6px;">
+        P/L @ SL: <span id="td-pl-sl">-</span> |
+        P/L @ 1:1: <span id="td-pl-t1">-</span> |
+        P/L @ 1:2: <span id="td-pl-t2">-</span> |
+        Lots: <span id="td-lots">-</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Output Panel -->
+  <div class="right-panel">
+    <h2>Outputs</h2>
+    <div class="tabs">
+      <div class="tab active" onclick="switchTab('recommender')">Recommender</div>
+      <div class="tab" onclick="switchTab('analyzer')">Analyzer</div>
+    </div>
+
+    <!-- Recommender -->
+    <div id="recommender" class="output-section active">
+      <div class="card"><strong>Suggested Trade:</strong> <span id="recTrade" class="neutral">-</span></div>
+      <div class="grid">
+        <div class="card"><strong>Strike(s):</strong> <span id="recStrikes">-</span></div>
+        <div class="card"><strong>Trade Strength:</strong> <span id="recStrength" class="profit">-</span></div>
+        <div class="card"><strong>Risk:</strong> <span id="recRisk" class="risk">-</span></div>
+        <div class="card"><strong>Reward:</strong> <span id="recReward" class="profit">-</span></div>
+        <div class="card"><strong>Breakeven(s):</strong> <span id="recBE">-</span></div>
+        <div class="card"><strong>Recommended Lots:</strong> <span id="recLots">-</span></div>
+      </div>
+
+      <div class="grid-3">
+        <div class="card"><strong>LTPs</strong><div class="kvs" id="recLTPs"></div></div>
+        <div class="card"><strong>Greeks (Per-Leg)</strong><div class="kvs" id="recLegGreeks"></div></div>
+        <div class="card">
+          <strong>Greeks Exposure (Net)</strong><div class="kvs" id="recNetGreeks"></div>
+          <div class="muted">IV ±5% P/L impact: <span id="recVegaShock"></span></div>
+        </div>
+      </div>
+
+      <div class="grid-3">
+        <div class="card"><strong>Liquidity & Volatility</strong><div id="recLiq">N/A</div></div>
+        <div class="card"><strong>Sentiment</strong><div id="recSent">N/A</div></div>
+        <div class="card"><strong>Risk Alerts</strong><ul class="bullets" id="recAlerts"></ul></div>
+      </div>
+
+      <div class="card"><strong>Why this trade?</strong><div id="recReason" class="muted">-</div></div>
+      <canvas id="recommenderChart"></canvas>
+    </div>
+
+    <!-- Analyzer -->
+    <div id="analyzer" class="output-section">
+      <label>Select Strategy</label>
+      <select id="strategy">
+        <option value="CE">Long Call (CE)</option>
+        <option value="PE">Long Put (PE)</option>
+        <option value="Straddle">Straddle</option>
+        <option value="Strangle">Strangle</option>
+        <option value="BullCall">Bull Call Spread</option>
+        <option value="BearPut">Bear Put Spread</option>
+        <option value="IronCondor">Iron Condor</option>
+      </select>
+
+      <div id="inputFields"></div>
+      <button class="btn-blue" onclick="analyzeTrade()">Run Analysis</button>
+
+      <div class="grid">
+        <div class="card"><strong>Risk:</strong> <span id="risk" class="risk">-</span></div>
+        <div class="card"><strong>Reward:</strong> <span id="reward" class="profit">-</span></div>
+        <div class="card"><strong>Breakeven:</strong> <span id="breakeven">-</span></div>
+        <div class="card"><strong>Recommended Lots:</strong> <span id="lots">-</span></div>
+        <div class="card"><strong>Trade Strength:</strong> <span id="strength" class="neutral">-</span></div>
+      </div>
+
+      <div class="grid-3">
+        <div class="card"><strong>LTPs</strong><div class="kvs" id="anLTPs"></div></div>
+        <div class="card"><strong>Greeks (Per-Leg)</strong><div class="kvs" id="anLegGreeks"></div></div>
+        <div class="card">
+          <strong>Greeks Exposure (Net)</strong><div class="kvs" id="anNetGreeks"></div>
+          <div class="muted">IV ±5% P/L impact: <span id="anVegaShock"></span></div>
+        </div>
+      </div>
+
+      <div class="grid-3">
+        <div class="card"><strong>Liquidity & Volatility</strong><div id="anLiq"></div></div>
+        <div class="card"><strong>Sentiment</strong><div id="anSent"></div></div>
+        <div class="card"><strong>Risk Alerts</strong><ul class="bullets" id="anAlerts"></ul></div>
+      </div>
+
+      <div class="card"><strong>Why this trade?</strong><div id="why" class="muted">-</div></div>
+      <canvas id="analyzerChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<script>
+if (window.Chart) {
+  try { Chart.register(ChartDataLabels); } catch(e){}
+  try { Chart.register(window['chartjs-plugin-annotation']); } catch(e){}
+}
+/* ===== Aliases & thresholds ===== */
+const aliases = {
+  strike: ['strike_price','strike','Strike Price','STRIKE'],
+  price_call: ['current_price_call','ltp_call','ltp_ce','price_call','LTP_CE','CALL_LTP'],
+  price_put:  ['current_price_put','ltp_put','ltp_pe','price_put','LTP_PE','PUT_LTP'],
+  iv_call: ['iv_call','iv_ce','IV_CE','implied_vol_call','IV Call'],
+  iv_put:  ['iv_put','iv_pe','IV_PE','implied_vol_put','IV Put'],
+  delta_call: ['delta_call','Delta_Call','CALL_DELTA'],
+  gamma_call: ['gamma_call','Gamma_Call','CALL_GAMMA'],
+  theta_call: ['theta_call','Theta_Call','CALL_THETA'],
+  vega_call:  ['vega_call','Vega_Call','CALL_VEGA'],
+  rho_call:   ['rho_call','Rho_Call','CALL_RHO'],
+  delta_put: ['delta_put','Delta_Put','PUT_DELTA'],
+  gamma_put: ['gamma_put','Gamma_Put','PUT_GAMMA'],
+  theta_put: ['theta_put','Theta_Put','PUT_THETA'],
+  vega_put:  ['vega_put','Vega_Put','PUT_VEGA'],
+  rho_put:   ['rho_put','Rho_Put','PUT_RHO'],
+  vol_call:  ['volume_call','Volume_Call','CALL_VOLUME'],
+  vol_put:   ['volume_put','Volume_Put','PUT_VOLUME'],
+  oi_call:   ['open_interest_call','oi_call','CALL_OI','Open Interest CE'],
+  oi_put:    ['open_interest_put','oi_put','PUT_OI','Open Interest PE'],
+  oiChg_call:['oi_changeP_call','oi_change_pct_call','OI_ChangeP_Call'],
+  oiChg_put: ['oi_changeP_put','oi_change_pct_put','OI_ChangeP_Put'],
+  dayChg_call: ['day_changeP_call','Day_ChangeP_Call'],
+  dayChg_put:  ['day_changeP_put','Day_ChangeP_Put'],
+  pcr_oi: ['pcr_oi'], pcr_oi_prev: ['pcr_oi_prev'], pcr_oi_change: ['pcr_oi_change'],
+  pcr_vol: ['pcr_volume','pcr_volume_p'], pcr_vol_prev: ['pcr_volume_prev'], pcr_vol_change: ['pcr_volume_change'],
+  built_up_call: ['built_up_call'], built_up_put: ['built_up_put'],
+  expiry: ['expiry','expiry_date','Expiry','EXPIRY']
+};
+const LOW_IV = 22, HIGH_IV = 35;
+let rawRows=[], rows=[], field={};
+const toNum = v => (typeof v==='number'? v : parseFloat(String(v||'').replace(/,/g,'')));
+
+function resolveFields(headerRow){
+  const keys = Object.keys(headerRow).map(k=>k.trim());
+  const pick = list => { for(const nm of list){ const hit=keys.find(k=>k.toLowerCase()===nm.toLowerCase()); if(hit) return hit; } return null; };
+  field.strike=pick(aliases.strike); field.priceC=pick(aliases.price_call); field.priceP=pick(aliases.price_put);
+  field.ivC=pick(aliases.iv_call); field.ivP=pick(aliases.iv_put);
+  field.dC=pick(aliases.delta_call); field.gC=pick(aliases.gamma_call); field.tC=pick(aliases.theta_call); field.vC=pick(aliases.vega_call); field.rC=pick(aliases.rho_call);
+  field.dP=pick(aliases.delta_put);  field.gP=pick(aliases.gamma_put);  field.tP=pick(aliases.theta_put);  field.vP=pick(aliases.vega_put);  field.rP=pick(aliases.rho_put);
+  field.volC=pick(aliases.vol_call); field.volP=pick(aliases.vol_put);
+  field.oiC=pick(aliases.oi_call); field.oiP=pick(aliases.oi_put);
+  field.oiChgC=pick(aliases.oiChg_call); field.oiChgP=pick(aliases.oiChg_put);
+  field.dayChgC=pick(aliases.dayChg_call); field.dayChgP=pick(aliases.dayChg_put);
+  field.pcrOI=pick(aliases.pcr_oi); field.pcrOIprev=pick(aliases.pcr_oi_prev); field.pcrOIchg=pick(aliases.pcr_oi_change);
+  field.pcrVOL=pick(aliases.pcr_vol); field.pcrVOLprev=pick(aliases.pcr_vol_prev); 
+  field.pcrVOLchg=pick(aliases.pcr_vol_change); // ✅ fixed key
+  field.buC=pick(aliases.built_up_call); field.buP=pick(aliases.built_up_put); field.expiry=pick(aliases.expiry);
+}
+
+/* ===== Load CSV ===== */
+document.getElementById("fileUpload").addEventListener("change", e=>{
+  const file=e.target.files[0];
+  Papa.parse(file,{header:true,dynamicTyping:false,skipEmptyLines:true,complete:res=>{
+    rawRows = res.data.map(r=>{ const o={}; for(const k in r) o[k.trim()]=r[k]; return o; });
+    if(!rawRows.length){ alert("No rows found in CSV."); return; }
+    resolveFields(rawRows[0]);
+    if(!field.strike || !field.priceC || !field.priceP){ alert("CSV missing key columns (strike + call/put price)."); return; }
+    const expInput=document.getElementById('expiry').value;
+    let filtered=rawRows;
+    if(field.expiry && expInput){
+      const wanted=new Date(expInput);
+      filtered=rawRows.filter(r=>{ const d=new Date(r[field.expiry]); return !isNaN(d) && d.toDateString()===wanted.toDateString(); });
+      if(!filtered.length) filtered=rawRows;
+    }
+    rows = filtered.map(r=>({
+      strike: toNum(r[field.strike]),
+      call: toNum(r[field.priceC]), put: toNum(r[field.priceP]),
+      ivC: field.ivC? toNum(r[field.ivC]) : NaN, ivP: field.ivP? toNum(r[field.ivP]) : NaN,
+      dC: toNum(r[field.dC]), gC: toNum(r[field.gC]), tC: toNum(r[field.tC]), vC: toNum(r[field.vC]), rC: toNum(r[field.rC]),
+      dP: toNum(r[field.dP]), gP: toNum(r[field.gP]), tP: toNum(r[field.tP]), vP: toNum(r[field.vP]), rP: toNum(r[field.rP]),
+      volC: toNum(r[field.volC]), volP: toNum(r[field.volP]),
+      oiC: toNum(r[field.oiC]), oiP: toNum(r[field.oiP]),
+      oiChgC: toNum(r[field.oiChgC]), oiChgP: toNum(r[field.oiChgP]),
+      dayChgC: toNum(r[field.dayChgC]), dayChgP: toNum(r[field.dayChgP]),
+      pcrOI: field.pcrOI? toNum(r[field.pcrOI]) : NaN,
+      pcrOIprev: field.pcrOIprev? toNum(r[field.pcrOIprev]) : NaN,
+      pcrOIchg: field.pcrOIchg? toNum(r[field.pcrOIchg]) : NaN,
+      pcrVOL: field.pcrVOL? toNum(r[field.pcrVOL]) : NaN,
+      pcrVOLprev: field.pcrVOLprev? toNum(r[field.pcrVOLprev]) : NaN,
+      pcrVOLchg: field.pcrVOLchg? toNum(r[field.pcrVOLchg]) : NaN,
+      buC: r[field.buC], buP: r[field.buP]
+    })).filter(r=>isFinite(r.strike)&&(isFinite(r.call)||isFinite(r.put)));
+    populateStrikes();
+  }});
+});
+
+/* ===== UI helpers ===== */
+function switchTab(tab){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.output-section').forEach(s=>s.classList.remove('active'));
+  document.querySelector('.tab:nth-child('+(tab==='recommender'?1:2)+')').classList.add('active');
+  document.getElementById(tab).classList.add('active');
+}
+function runRecommender(){ switchTab('recommender'); autoRecommender(); }
+function runAnalyzer(){ switchTab('analyzer'); }
+
+/* ===== Populate strategy inputs ===== */
+function populateStrikes(){
+  if(!rows.length) return;
+  const unique=[...new Set(rows.map(r=>r.strike))].sort((a,b)=>a-b);
+  const strat=document.getElementById("strategy").value;
+  let html="";
+  if(["CE","PE","Straddle"].includes(strat))
+    html+=`<label>Strike</label><select id="strike">${unique.map(s=>`<option>${s}</option>`)}</select>`;
+  if(strat==="Strangle")
+    html+=`<label>Call Strike</label><select id="callStrike">${unique.map(s=>`<option>${s}</option>`)}</select>
+           <label>Put Strike</label><select id="putStrike">${unique.map(s=>`<option>${s}</option>`)}</select>`;
+  if(["BullCall","BearPut"].includes(strat))
+    html+=`<label>Buy Strike</label><select id="buyStrike">${unique.map(s=>`<option>${s}</option>`)}</select>
+           <label>Sell Strike</label><select id="sellStrike">${unique.map(s=>`<option>${s}</option>`)}</select>`;
+  if(strat==="IronCondor")
+    html+=`<label>Put Buy Strike</label><select id="putBuy">${uniqueStrikes(unique).map(s=>`<option>${s}</option>`)}</select>
+           <label>Put Sell Strike</label><select id="putSell">${unique.map(s=>`<option>${s}</option>`)}</select>
+           <label>Call Sell Strike</label><select id="callSell">${unique.map(s=>`<option>${s}</option>`)}</select>
+           <label>Call Buy Strike</label><select id="callBuy">${unique.map(s=>`<option>${s}</option>`)}</select>`;
+  document.getElementById("inputFields").innerHTML=html;
+}
+document.getElementById("strategy").addEventListener("change", populateStrikes);
+
+/* ===== Data accessors & utils ===== */
+const rowByStrike = k => rows.find(r=>r.strike==k);
+const priceC = k => (rowByStrike(k)||{}).call;
+const priceP = k => (rowByStrike(k)||{}).put;
+const ivC = k => (rowByStrike(k)||{}).ivC;
+const ivP = k => (rowByStrike(k)||{}).ivP;
+const avgClean = arr => { const v=arr.filter(x=>isFinite(x)); return v.length? v.reduce((a,b)=>a+b,0)/v.length : NaN; };
+const round = n => isFinite(n)? Math.round(n*100)/100 : n;
+const ivBucket = iv => isFinite(iv) ? (iv<=LOW_IV?'low':iv>=HIGH_IV?'high':'mid') : 'n/a';
+function legGreeks(k, type, qtySign){
+  const r=rowByStrike(k)||{};
+  if(type==='C') return {delta:qtySign*(r.dC||0), gamma:qtySign*(r.gC||0), theta:qtySign*(r.tC||0), vega:qtySign*(r.vC||0), rho:qtySign*(r.rC||0)};
+  return {delta:qtySign*(r.dP||0), gamma:qtySign*(r.gP||0), theta:qtySign*(r.tP||0), vega:qtySign*(r.vP||0), rho:qtySign*(r.rP||0)};
+}
+function sumGreeks(arr){ return ['delta','gamma','theta','vega','rho'].reduce((o,k)=>{o[k]=arr.reduce((s,g)=>s+(g[k]||0),0); return o; },{}); }
+function fmtGreeks(g){ return `<div>Δ ${round(g.delta)}</div><div>Γ ${round(g.gamma)}</div><div>Θ ${round(g.theta)}</div><div>V ${round(g.vega)}</div><div>R ${round(g.rho)}</div>`; }
+function liqScore(legs){
+  let scores=[];
+  for(const L of legs){
+    const r=rowByStrike(L.k)||{};
+    const vol = (L.type==='C')? (r.volC||0) : (r.volP||0);
+    const oi  = (L.type==='C')? (r.oiC||0)  : (r.oiP||0);
+    const s = (vol>=2000 && oi>=10000)?1 : (vol>=500 && oi>=3000)?2 : 3;
+    scores.push(s);
+  }
+  return Math.max(...scores);
+}
+function ivSuitability(strategy, legs){
+  const ivs=legs.map(L=> L.type==='C'? (ivC(L.k)||NaN):(ivP(L.k)||NaN));
+  const a=avgClean(ivs);
+  const isBuy=['CE','PE','Straddle','Strangle','BullCall','BearPut'].includes(strategy);
+  const isSell=['IronCondor'].includes(strategy);
+  let msg=`IV ~${isFinite(a)?round(a):'n/a'} (${ivBucket(a)}) → `;
+  if(isBuy) msg += (isFinite(a) && a<=LOW_IV)? '✓ favorable for debit (buy vol)' : (isFinite(a) && a>=HIGH_IV)? '⚠ rich for buying' : '• acceptable';
+  if(isSell) msg += (isFinite(a) && a>=HIGH_IV)? '✓ favorable for credit (sell vol)' : (isFinite(a) && a<=LOW_IV)? '⚠ cheap vol to sell' : '• acceptable';
+  return msg;
+}
+function pcrBlock(){
+  const r=rows.find(x=>isFinite(x.pcrOI)||isFinite(x.pcrVOL))||{};
+  const o1=`PCR OI: ${isFinite(r.pcrOI)?round(r.pcrOI):'-'} (prev ${isFinite(r.pcrOIprev)?round(r.pcrOIprev):'-'}, Δ ${isFinite(r.pcrOIchg)?round(r.pcrOIchg):'-'})`;
+  const o2=`PCR Vol: ${isFinite(r.pcrVOL)?round(r.pcrVOL):'-'} (prev ${isFinite(r.pcrVOLprev)?round(r.pcrVOLprev):'-'}, Δ ${isFinite(r.pcrVOLchg)?round(r.pcrVOLchg):'-'})`;
+  return `${o1}<br>${o2}`;
+}
+function buildupText(){
+  const any=rows.find(r=>r.buC||r.buP||isFinite(r.dayChgC)||isFinite(r.oiChgC)||isFinite(r.dayChgP)||isFinite(r.oiChgP))||{};
+  if(any.buC || any.buP) return `Call: ${any.buC||'-'} | Put: ${any.buP||'-'}`;
+  function infer(px,oi){
+    if(!isFinite(px)||!isFinite(oi)) return 'n/a';
+    if(px>0 && oi>0) return 'Long Buildup';
+    if(px>0 && oi<0) return 'Short Covering';
+    if(px<0 && oi>0) return 'Short Buildup';
+    if(px<0 && oi<0) return 'Long Unwinding';
+    return 'Neutral';
+  }
+  return `Call: ${infer(any.dayChgC, any.oiChgC)} | Put: ${infer(any.dayChgP, any.oiChgP)}`;
+}
+function riskAlerts(strategy, legs, riskPerLot){
+  const princ=+document.getElementById("principal").value||0;
+  const lots = riskPerLot>0 && princ>0 ? Math.floor(princ / riskPerLot) : 0;
+  const alerts=[];
+  if (princ>0 && riskPerLot>0 && (riskPerLot*lots) > 0.02*princ) alerts.push("🚨 Violates 2% Rule (risk > 2% of principal).");
+  const ivMsg = ivSuitability(strategy, legs);
+  if (ivMsg.includes('⚠')) alerts.push("🚨 IV not favorable for chosen strategy.");
+  const ls = liqScore(legs);
+  if (ls===3) alerts.push("🚨 Liquidity Score = 3 (slippage risk).");
+  const eDate = document.getElementById('earnings').value;
+  const xDate = document.getElementById('expiry').value;
+  if (eDate && xDate && new Date(eDate) <= new Date(xDate)) alerts.push("🚨 Earnings before expiry.");
+  const any=rows.find(r=>isFinite(r.dayChgC)||isFinite(r.dayChgP))||{};
+  const proxy = Math.max(Math.abs(any.dayChgC||0), Math.abs(any.dayChgP||0));
+  if (proxy>=5) alerts.push("🚨 Underlying moved ~≥5% today (avoid chasing).");
+  return {alerts, lots};
+}
+
+/* ===== Currency + Chart helpers ===== */
+function inr(x){ if(!isFinite(x)) return '-'; return new Intl.NumberFormat('en-IN').format(Math.round(x)); }
+function beAnnotations(breakevens) {
+  return (breakevens || []).filter(Number.isFinite).map((be, i) => ({
+    type: 'line', xMin: be, xMax: be, borderColor: '#ff4444', borderWidth: 2, borderDash: [6, 6],
+    label: { display: true, content: `BE${i+1}: ${Math.round(be)}`, position: 'start', color: '#ffcccc', backgroundColor: 'rgba(255,68,68,0.15)', padding: 4 }
+  }));
+}
+function buildFullPriceGrid(breakevens, step = 50, pad = 200) {
+  const be = (breakevens || []).filter(Number.isFinite);
+  const minBE = be.length ? Math.min(...be) : 0;
+  const maxBE = be.length ? Math.max(...be) : 1000;
+  const start = Math.max(0, Math.floor((minBE - pad)/step) * step);
+  const end   = Math.ceil((maxBE + pad)/step) * step;
+  const xs = []; for (let p = start; p <= end; p += step) xs.push(p);
+  return xs;
+}
+function commonChartOptions(breakevens, xRange) {
+  return {
+    interaction: { mode: 'nearest', intersect: false },
+    plugins:{
+      legend:{ labels:{ color:'#fff' }},
+      tooltip:{ callbacks:{ title:(items)=> `Spot: ${items[0].label}`, label:(ctx)=> `P/L: ₹${inr(ctx.parsed.y)}` }},
+      datalabels:{
+        display:(ctx)=>{ const n = ctx.dataset.data.length; return [0, Math.floor(n/2), n-1].includes(ctx.dataIndex); },
+        formatter:(v)=> `₹${inr(v)}`, align:'top', color:'#fff', backgroundColor:'#333', borderRadius:3, padding:4, clip:true
+      },
+      annotation:{ annotations: beAnnotations(breakevens) }
+    },
+    scales:{
+      x:{ ticks:{ color:'#fff' }, title:{ display:true, text:'Underlying at Expiry', color:'#aaa' }, ...(xRange ? { min: xRange.min, max: xRange.max } : {}) },
+      y:{ ticks:{ color:'#fff', callback:(v)=> `₹${inr(v)}` }, title:{ display:true, text:'Profit / Loss', color:'#aaa' } }
+    }
+  };
+}
+
+/* ===== Trade Details (Entry/SL/Targets) ===== */
+function updateTradeDetails(legs, _riskPerLotCurrency, lotsCount){
+  const lotSz   = +document.getElementById('lotSize').value || 1;
+  const princ   = +document.getElementById('principal').value || 0;
+  const riskInp = +document.getElementById('riskPerTrade').value || 0; // ← NEW
+  const lotsUsed = Math.max(1, lotsCount || 0);
+
+  // Net entry premium per contract (positive = debit, negative = credit)
+  let netPrem = 0;
+  for (const L of legs){
+    const prem = (L.type==='C' ? priceC(L.k) : priceP(L.k)) || 0;
+    netPrem += L.side * prem;
+  }
+  const isDebit = netPrem >= 0;
+  const entry   = Math.abs(netPrem); // per contract
+
+  // --- Risk logic ---
+  // If user provided Risk Amount per Trade, use it.
+  // Else, fallback to 2% of principal (previous behaviour).
+  const fallbackTradeRisk = 0.02 * princ;               // total ₹ risk per trade (fallback)
+  const tradeRisk = riskInp > 0 ? riskInp : fallbackTradeRisk;
+
+  // Convert trade ₹ into per-contract premium risk
+  // tradeRisk = perContractRisk * lotSz * lotsUsed
+  const perContractRisk = (lotSz * lotsUsed) > 0 ? (tradeRisk / (lotSz * lotsUsed)) : 0;
+
+  // SL/Targets in premium terms per contract
+  let sl, t1, t2, slNote = '';
+  if (isDebit){
+    sl = Math.max(entry - perContractRisk, 0);
+    t1 = entry + perContractRisk;
+    t2 = entry + 2*perContractRisk;
+  } else {
+    // Credit: loss increases as premium rises; profit as it falls
+    sl = entry + perContractRisk;
+    t1 = Math.max(entry - perContractRisk, 0);
+    t2 = Math.max(entry - 2*perContractRisk, 0);
+  }
+  slNote = riskInp > 0 ? ' (by Risk input)' : ' (2% cap)';
+
+  // P/L equivalents at those points (per trade = lotsUsed * lotSz * Δpremium)
+  const plSL = (isDebit ? (sl-entry) : (entry-sl)) * lotSz * lotsUsed;
+  const plT1 = (isDebit ? (t1-entry) : (entry-t1)) * lotSz * lotsUsed;
+  const plT2 = (isDebit ? (t2-entry) : (entry-t2)) * lotSz * lotsUsed;
+
+  // Fill UI
+  const inr = x => !isFinite(x) ? '-' : new Intl.NumberFormat('en-IN').format(Math.round(x));
+  document.getElementById('td-summary').textContent = isDebit ? 'Debit strategy (net premium paid).' : 'Credit strategy (net premium received).';
+  document.getElementById('td-entry').textContent   = `₹${inr(entry)}`;
+  document.getElementById('td-sl').textContent      = `₹${inr(sl)}${slNote}`;
+  document.getElementById('td-t1').textContent      = `₹${inr(t1)} (1:1)`;
+  document.getElementById('td-t2').textContent      = `₹${inr(t2)} (1:2)`;
+  document.getElementById('td-pl-sl').textContent   = `₹${inr(plSL)}`;
+  document.getElementById('td-pl-t1').textContent   = `₹${inr(plT1)}`;
+  document.getElementById('td-pl-t2').textContent   = `₹${inr(plT2)}`;
+  document.getElementById('td-lots').textContent    = inr(lotsUsed);
+}
+
+/* ===== Recommender ===== */
+function autoRecommender(){
+  if(!rows.length){ alert("Upload option chain first."); return; }
+  const lot =+document.getElementById("lotSize").value || 1;
+  const princ=+document.getElementById("principal").value || 0;
+
+  const spotVal = +document.getElementById("spot").value || rows[Math.floor(rows.length/2)].strike;
+  const atm=rows.reduce((a,b)=>Math.abs(b.strike-spotVal)<Math.abs(a.strike-spotVal)?b:a);
+  const ivAvg = avgClean([atm.ivC, atm.ivP]);
+  const oiTilt=(atm.oiC||0)-(atm.oiP||0);
+  const cp=atm.call||0, pp=atm.put||0, tot=cp+pp;
+
+  const strikes=[...new Set(rows.map(r=>r.strike))].sort((a,b)=>a-b);
+  const idx=strikes.indexOf(atm.strike);
+
+  let pick={name:"", strikesText:"", risk:0, reward:"-", breakevens:[], reason:"", legs:[]};
+
+  if (isFinite(ivAvg)&&ivAvg<=LOW_IV){
+    pick={name:"Long Straddle", strikesText:String(atm.strike),
+      risk:tot*lot, reward:"Unlimited",
+      breakevens:[atm.strike-tot, atm.strike+tot],
+      reason:`Low IV (~${round(ivAvg)}; ${ivBucket(ivAvg)}). Buy volatility at ATM.`,
+      legs:[{k:atm.strike,type:'C',side:+1},{k:atm.strike,type:'P',side:+1}]};
+  } else if (isFinite(ivAvg)&&ivAvg>=HIGH_IV){
+    const ps=strikes[Math.max(0,idx-1)]??atm.strike;
+    const pb=strikes[Math.max(0,idx-2)]??ps;
+    const cs=strikes[Math.min(strikes.length-1,idx+1)]??atm.strike;
+    const cb=strikes[Math.min(strikes.length-1,idx+2)]??cs;
+    const pps=priceP(ps)||0, ppb=priceP(pb)||0, pcs=priceC(cs)||0, pcb=priceC(cb)||0;
+    const net=(pps-ppb)+(pcs-pcb);
+    pick={name:"Iron Condor", strikesText:`P:${pb}/${ps}  C:${cs}/${cb}`,
+      risk:Math.max((cb-cs-net),(ps-pb-net))*lot, reward:`₹${net*lot}`,
+      breakevens:[ps-net, cs+net],
+      reason:`High IV (~${round(ivAvg)}; ${ivBucket(ivAvg)}). Sell volatility with defined risk.`,
+      legs:[{k:pb,type:'P',side:+1},{k:ps,type:'P',side:-1},{k:cs,type:'C',side:-1},{k:cb,type:'C',side:+1}]};
+  } else {
+    if (oiTilt>0){
+      const kb=atm.strike, ks=strikes[Math.min(strikes.length-1,idx+1)]??kb;
+      const pbL=priceC(kb)||0, psL=priceC(ks)||0, net=pbL-psL;
+      pick={name:"Bull Call Spread", strikesText:`${kb}/${ks}`,
+        risk:net*lot, reward:`₹${(ks-kb-net)*lot}`, breakevens:[kb+net],
+        reason:`Mid IV (~${round(ivAvg)}). Bullish OI tilt; limited-risk upside.`,
+        legs:[{k:kb,type:'C',side:+1},{k:ks,type:'C',side:-1}]};
+    } else if (oiTilt<0){
+      const kb=atm.strike, ks=strikes[Math.max(0,idx-1)]??kb;
+      const pbL=priceP(kb)||0, psL=priceP(ks)||0, net=pbL-psL;
+      pick={name:"Bear Put Spread", strikesText:`${kb}/${ks}`,
+        risk:net*lot, reward:`₹${(kb-ks-net)*lot}`, breakevens:[kb-net],
+        reason:`Mid IV (~${round(ivAvg)}). Bearish OI tilt; limited-risk downside.`,
+        legs:[{k:kb,type:'P',side:+1},{k:ks,type:'P',side:-1}]};
+    } else {
+      const kc=strikes[Math.min(strikes.length-1,idx+1)]??atm.strike;
+      const kp=strikes[Math.max(0,idx-1)]??atm.strike;
+      const cp2=priceC(kc)||0, pp2=priceP(kp)||0, tot2=cp2+pp2;
+      pick={name:"Long Strangle", strikesText:`P:${kp}  C:${kc}`,
+        risk:tot2*lot, reward:"Unlimited", breakevens:[kp-tot2, kc+tot2],
+        reason:`Neutral OI; buy cheaper wings vs straddle.`,
+        legs:[{k:kp,type:'P',side:+1},{k:kc,type:'C',side:+1}]};
+    }
+  }
+
+  // Fill recommender UI
+  const atmRow=atm;
+  document.getElementById("recTrade").textContent=pick.name;
+  document.getElementById("recStrikes").textContent=pick.strikesText;
+  document.getElementById("recStrength").textContent=( (atmRow.oiChgC>0&&atmRow.oiChgP>0)?'Strong': ((atmRow.oiChgC>0||atmRow.oiChgP>0)?'Moderate':'Neutral') );
+  document.getElementById("recRisk").textContent=isFinite(pick.risk)?`₹${inr(pick.risk)}`:'-';
+  document.getElementById("recReward").textContent=pick.reward;
+  document.getElementById("recBE").textContent=pick.breakevens.map(x=>round(x)).join(' / ');
+  document.getElementById("recReason").textContent=pick.reason;
+
+  // LTPs & Greeks
+  document.getElementById("recLTPs").innerHTML =
+    pick.legs.map(L=>`<div>${L.side>0?'Long':'Short'} ${L.type} @ ${L.k}: LTP ${round(L.type==='C'?priceC(L.k):priceP(L.k))}</div>`).join('');
+  const legGs = pick.legs.map(L=>({label:`${L.side>0?'Long':'Short'} ${L.type} ${L.k}`, g:legGreeks(L.k,L.type,L.side)}));
+  document.getElementById("recLegGreeks").innerHTML = legGs.map(x=>`<div>${x.label}</div>${fmtGreeks(x.g)}`).join('');
+  const netG = sumGreeks(legGs.map(x=>x.g));
+  document.getElementById("recNetGreeks").innerHTML = fmtGreeks(netG);
+  document.getElementById("recVegaShock").textContent = `+5% ≈ ₹${round(netG.vega*5)}  |  -5% ≈ ₹${round(-netG.vega*5)}`;
+
+  // Lots (and alerts)
+  const ra = riskAlerts(pick.name.replace(/\s/g,''), pick.legs, pick.risk);
+  const lots = ra.lots;
+  document.getElementById("recLots").textContent = lots;
+  document.getElementById("recAlerts").innerHTML = ra.alerts.map(a=>`<li>${a}</li>`).join('') || '<li>None</li>';
+
+  // Liquidity & Sentiment (same as Analyzer style)
+  const ls = liqScore(pick.legs);
+  document.getElementById("recLiq").innerHTML =
+    `${ivSuitability(pick.name.replace(/\s/g,''), pick.legs)}<br>
+     Liquidity Score: <strong>${ls}</strong> ${ls===3?'<span class="warn">Slippage warning.</span>':''}`;
+
+  document.getElementById("recSent").innerHTML =
+    `${pcrBlock()}<br>${buildupText()}`;
+
+  // === Trade Details
+  updateTradeDetails(pick.legs, pick.risk, lots);
+
+  // === Full payoff chart ===
+  const pricesBE = buildFullPriceGrid(pick.breakevens, 50, 200);
+  const lotSz = +document.getElementById('lotSize').value || 1;
+  const plBE = pricesBE.map(p=>{
+    let payoff=0;
+    for(const L of pick.legs){
+      const prem = (L.type==='C'? priceC(L.k):priceP(L.k)) || 0;
+      payoff += L.side * (L.type==='C' ? (Math.max(p - L.k, 0) - prem) : (Math.max(L.k - p, 0) - prem));
+    }
+    return payoff * lotSz;
+  });
+
+  const ctx=document.getElementById('recommenderChart').getContext('2d');
+  if(window.recChart) window.recChart.destroy();
+  window.recChart = new Chart(ctx,{
+    type:'line',
+    data:{ labels:pricesBE, datasets:[{ label:'P/L', data:plBE, pointRadius:2, borderWidth:2, borderColor:'#00ff88', backgroundColor:'rgba(0,255,136,0.2)', fill:true }] },
+    options: commonChartOptions(pick.breakevens, { min: pricesBE[0], max: pricesBE[pricesBE.length-1] }),
+    plugins: [ChartDataLabels]
+  });
+}
+
+/* ===== Analyzer (full payoff) ===== */
+function analyzeTrade(){
+  if(!rows.length){ alert("Upload option chain first."); return; }
+  const strat=document.getElementById("strategy").value;
+  const lotSz =+document.getElementById("lotSize").value || 1;
+
+  let risk=0, reward='-', breakevens=[], legs=[], whyMsg='-';
+
+  if (strat==="CE"||strat==="PE"){
+    const k=+document.getElementById("strike").value;
+    const prem = strat==="CE"? (priceC(k)||0) : (priceP(k)||0);
+    risk=prem*lotSz; reward=strat==="CE"?"Unlimited":"High (downside)"; breakevens=[strat==="CE"?k+prem:k-prem];
+    legs=[{k,type:(strat==="CE"?'C':'P'),side:+1}];
+    whyMsg = `${strat==="CE"?'Bullish':'Bearish'} directional exposure.`;
+  }
+  if (strat==="Straddle"){
+    const k=+document.getElementById("strike").value, cp=priceC(k)||0, pp=priceP(k)||0, tot=cp+pp;
+    risk=tot*lotSz; reward="Unlimited"; breakevens=[k-tot,k+tot];
+    legs=[{k,type:'C',side:+1},{k,type:'P',side:+1}];
+    whyMsg = 'Buy volatility at ATM.';
+  }
+  if (strat==="Strangle"){
+    const kc=+document.getElementById("callStrike").value, kp=+document.getElementById("putStrike").value;
+    const cp=priceC(kc)||0, pp=priceP(kp)||0, tot=cp+pp;
+    risk=tot*lotSz; reward="Unlimited"; breakevens=[kp-tot,kc+tot];
+    legs=[{k:kc,type:'C',side:+1},{k:kp,type:'P',side:+1}];
+    whyMsg = 'Cheaper volatility buy vs straddle (wider wings).';
+  }
+  if (strat==="BullCall"){
+    const kb=+document.getElementById("buyStrike").value, ks=+document.getElementById("sellStrike").value;
+    const pb=priceC(kb)||0, ps=priceC(ks)||0, net=pb-ps;
+    risk=net*lotSz; reward=`₹${(ks-kb-net)*lotSz}`; breakevens=[kb+net];
+    legs=[{k:kb,type:'C',side:+1},{k:ks,type:'C',side:-1}];
+    whyMsg = 'Bullish, limited risk; short call reduces cost and theta drag.';
+  }
+  if (strat==="BearPut"){
+    const kb=+document.getElementById("buyStrike").value, ks=+document.getElementById("sellStrike").value;
+    const pb=priceP(kb)||0, ps=priceP(ks)||0, net=pb-ps;
+    risk=net*lotSz; reward=`₹${(kb-ks-net)*lotSz}`; breakevens=[kb-net];
+    legs=[{k:kb,type:'P',side:+1},{k:ks,type:'P',side:-1}];
+    whyMsg = 'Bearish, limited risk; short put offsets cost.';
+  }
+  if (strat==="IronCondor"){
+    const pb=+document.getElementById("putBuy").value, ps=+document.getElementById("putSell").value;
+    const cs=+document.getElementById("callSell").value, cb=+document.getElementById("callBuy").value;
+    const ppb=priceP(pb)||0, pps=priceP(ps)||0, pcs=priceC(cs)||0, pcb=priceC(cb)||0;
+    const net=(pps-ppb)+(pcs-pcb);
+    risk=Math.max((cb-cs-net),(ps-pb-net))*lotSz; reward=`₹${net*lotSz}`; breakevens=[ps-net, cs+net];
+    legs=[{k:pb,type:'P',side:+1},{k:ps,type:'P',side:-1},{k:cs,type:'C',side:-1},{k:cb,type:'C',side:+1}];
+    whyMsg = 'Range/mean-reversion trade: sell rich vol with defined wings.';
+  }
+
+  // KPIs
+  document.getElementById("risk").textContent= isFinite(risk)?`₹${inr(risk)}`:'-';
+  document.getElementById("reward").textContent= reward;
+  document.getElementById("breakeven").textContent= breakevens.map(x=>round(x)).join(' / ') || '-';
+
+  // Greeks & Sensitivity
+  const legGs = legs.map(L=>({label:`${L.side>0?'Long':'Short'} ${L.type} ${L.k}`, g:legGreeks(L.k,L.type,L.side)}));
+  document.getElementById("anLegGreeks").innerHTML = legGs.map(x=>`<div>${x.label}</div>${fmtGreeks(x.g)}`).join('') || '-';
+  const netG = sumGreeks(legGs.map(x=>x.g));
+  document.getElementById("anNetGreeks").innerHTML = fmtGreeks(netG);
+  document.getElementById("anVegaShock").textContent = `+5% ≈ ₹${round(netG.vega*5)}  |  -5% ≈ ₹${round(-netG.vega*5)}`;
+
+  // LTPs
+  document.getElementById("anLTPs").innerHTML =
+    legs.map(L=>`<div>${L.side>0?'Long':'Short'} ${L.type} @ ${L.k}: LTP ${round(L.type==='C'?priceC(L.k):priceP(L.k))}</div>`).join('') || '-';
+
+  // Strength, Why, Liq, Sentiment, Alerts
+  const strengthLabel = ivSuitability(strat, legs).includes('✓') ? 'Strong' : (ivSuitability(strat, legs).includes('⚠')?'Moderate':'Neutral');
+  document.getElementById("strength").textContent = strengthLabel;
+  document.getElementById("why").textContent = whyMsg + ` ${ivSuitability(strat, legs)}`;
+  const ls = liqScore(legs);
+  document.getElementById("anLiq").innerHTML = `${ivSuitability(strat, legs)}<br>Liquidity Score: <strong>${ls}</strong> ${ls===3?'<span class="warn">Slippage warning.</span>':''}`;
+  document.getElementById("anSent").innerHTML = `${pcrBlock()}<br>${buildupText()}`;
+
+  // Lots & Alerts
+  const ra = riskAlerts(strat, legs, risk);
+  const lots = ra.lots;
+  document.getElementById("lots").textContent = lots;
+  document.getElementById("anAlerts").innerHTML = ra.alerts.map(a=>`<li>${a}</li>`).join('') || '<li>None</li>';
+
+  // === Trade Details (Entry/SL/Targets using 2% rule) ===
+  updateTradeDetails(legs, risk, lots);
+
+  // === Full payoff chart ===
+  const pricesBE = buildFullPriceGrid(breakevens, 50, 200);
+  const plBE = pricesBE.map(p=>{
+    let payoff=0;
+    for(const L of legs){
+      const prem = (L.type==='C'? priceC(L.k):priceP(L.k)) || 0;
+      payoff += L.side * (L.type==='C' ? (Math.max(p - L.k, 0) - prem) : (Math.max(L.k - p, 0) - prem));
+    }
+    return payoff * lotSz;
+  });
+
+  const ctx=document.getElementById('analyzerChart').getContext('2d');
+  if(window.tradeChart) window.tradeChart.destroy();
+  window.tradeChart = new Chart(ctx,{
+    type:'line',
+    data:{ labels:pricesBE, datasets:[{ label:'P/L', data:plBE, pointRadius:2, borderWidth:2, borderColor:'#33bbff', backgroundColor:'rgba(51,187,255,0.2)', fill:true }] },
+    options: commonChartOptions(breakevens, { min: pricesBE[0], max: pricesBE[pricesBE.length-1] }),
+    plugins: [ChartDataLabels]
+  });
+}
+</script>
+</body>
+</html>
